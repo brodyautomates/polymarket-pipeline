@@ -1,7 +1,8 @@
-.env
 trades.db
 trades.db-shm
 trades.db-wal
 __pycache__/
 *.pyc
 .venv/
+*.session
+.env*

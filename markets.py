@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import httpx
 
 import config
+from utils import retry
 
 GAMMA_API = "https://gamma-api.polymarket.com"
 
@@ -26,6 +27,7 @@ class Market:
         return self.yes_price
 
 
+@retry(max_attempts=3, base_delay=2.0)
 def fetch_active_markets(limit: int = 50) -> list[Market]:
     """Fetch active, liquid markets from Polymarket's Gamma API."""
     markets = []
@@ -167,22 +169,76 @@ def _fetch_from_clob(limit: int) -> list[Market]:
     return markets
 
 
+_CATEGORY_RULES = [
+    ("crypto", [
+        "bitcoin", "btc", "ethereum", "eth", "solana", "sol", "crypto",
+        "blockchain", "defi", "token", "nft", "stablecoin", "usdc", "usdt",
+        "binance", "coinbase", "memecoin", "altcoin", "mining", "halving",
+        "polygon", "avalanche", "cardano", "dogecoin", "ripple", "xrp",
+    ]),
+    ("ai", [
+        "ai", "artificial intelligence", "openai", "chatgpt", "llm",
+        "google ai", "anthropic", "claude", "gemini", "gpt", "machine learning",
+        "deepmind", "neural", "foundation model",
+    ]),
+    ("technology", [
+        "tech", "apple", "google", "microsoft", "software", "startup",
+        "nvidia", "semiconductor", "chip", "meta", "amazon", "tesla",
+        "ipo", "acquisition",
+    ]),
+    ("economics", [
+        "gdp", "cpi", "inflation", "interest rate", "fed rate", "recession",
+        "treasury", "unemployment", "tariff", "trade war", "central bank",
+        "earnings", "revenue", "stock market", "s&p 500", "dow jones",
+    ]),
+    ("finance", [
+        "stock", "bond", "commodity", "oil price", "gold price", "forex",
+        "market cap", "ipo valuation", "sec", "regulation",
+    ]),
+    ("politics", [
+        "election", "president", "congress", "senate", "trump", "biden",
+        "governor", "primary", "democrat", "republican", "vote", "poll",
+        "parliament", "prime minister", "legislation", "impeach",
+    ]),
+    ("geopolitics", [
+        "nato", "ukraine", "russia", "china taiwan", "sanctions", "war",
+        "military", "invasion", "ceasefire", "treaty", "nuclear",
+        "north korea", "iran", "middle east", "blockade",
+    ]),
+    ("sports", [
+        "nfl", "nba", "mlb", "nhl", "ufc", "fifa", "super bowl",
+        "champions league", "world cup", "olympics", "playoff",
+        "mvp", "championship", "premier league", "grand prix", "f1",
+    ]),
+    ("entertainment", [
+        "oscar", "grammy", "emmy", "golden globe", "box office",
+        "netflix", "disney", "streaming", "album", "movie", "tv show",
+        "billboard", "award", "nomination",
+    ]),
+    ("science", [
+        "spacex", "nasa", "starship", "launch", "mars", "moon",
+        "research", "study", "discovery", "quantum", "fusion",
+    ]),
+    ("health", [
+        "fda", "who", "vaccine", "pandemic", "drug approval",
+        "clinical trial", "public health", "epidemic",
+    ]),
+    ("climate", [
+        "climate", "carbon", "emissions", "renewable", "hurricane",
+        "wildfire", "drought", "temperature record",
+    ]),
+]
+
+
 def _infer_category(question: str, tags: list) -> str:
     """Infer category from question text and tags."""
     q = question.lower()
     tag_str = " ".join(str(t).lower() for t in tags)
     combined = f"{q} {tag_str}"
 
-    if any(kw in combined for kw in ["ai", "artificial intelligence", "openai", "chatgpt", "llm", "google ai", "anthropic"]):
-        return "ai"
-    if any(kw in combined for kw in ["bitcoin", "ethereum", "crypto", "blockchain", "defi", "token"]):
-        return "crypto"
-    if any(kw in combined for kw in ["election", "president", "congress", "senate", "trump", "biden", "political"]):
-        return "politics"
-    if any(kw in combined for kw in ["spacex", "nasa", "climate", "research", "study", "discovery"]):
-        return "science"
-    if any(kw in combined for kw in ["tech", "apple", "google", "microsoft", "software", "startup"]):
-        return "technology"
+    for category, keywords in _CATEGORY_RULES:
+        if any(kw in combined for kw in keywords):
+            return category
     return "other"
 
 

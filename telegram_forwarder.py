@@ -24,27 +24,23 @@ TARGET_CHANNEL = os.getenv("TELEGRAM_TARGET_CHANNEL", "@@trading_news_yrii")
 
 # Channels to monitor — add/remove as needed
 SOURCE_CHANNELS = [
-    # Crypto / Finance
-    "@bitcoin",
-    "@unusual_whales",
-    "@coinbureau",
-    # News / Politics
-    "@reuters",
-    "@bbcnews",
-    "@thehill",
-    "@politico",
-    # Tech / AI
-    "@techcrunchofficial",
+    "@TreeNewsFeed",
+    "@SharkTradeandCrypto",
+    "@coin_listing",
     "@wu_blockchain",
-    "@cointelegraph",
-    "@coindesk",
-    "@cryptopanicnews",
-    "@coingecko",
-    "@cryptonews",
-    "@messari",
-    "@banklesshq",
-    "@cryptoslate",
-    "@cryptopotato",
+    "@CryptoRankNews",
+    "@DeFimillion",
+    "@whale_alert",
+    "@cryptolistingPro",
+    "@PeckShieldAlert",
+    "@binance_announcements",
+    "@cryptodiffer",
+    "@CoinMarketCap",
+    "@glassnode",
+    "@zachxbt",
+    "@spotonchain",
+    "@icospeaksnews",
+    "@icodrops",
     "@polynews_crypto",
 ]
 

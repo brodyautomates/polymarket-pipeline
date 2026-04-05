@@ -10,13 +10,18 @@ import logging
 from dataclasses import dataclass
 
 import anthropic
+import httpx
 
 import config
 from markets import Market
+from utils import retry
 
 log = logging.getLogger(__name__)
 
-client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+client = anthropic.Anthropic(
+    api_key=config.ANTHROPIC_API_KEY,
+    timeout=httpx.Timeout(30.0, connect=10.0),
+)
 
 CLASSIFICATION_PROMPT = """You are a news classifier for prediction markets.
 
@@ -52,6 +57,7 @@ class Classification:
     model: str
 
 
+@retry(max_attempts=2, base_delay=1.0)
 def classify(headline: str, market: Market, source: str = "unknown") -> Classification:
     """Classify a news headline against a market question. Synchronous."""
     start = time.time()

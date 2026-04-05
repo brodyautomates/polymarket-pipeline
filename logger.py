@@ -37,7 +37,8 @@ def init_db():
             materiality REAL,
             news_latency_ms INTEGER,
             classification_latency_ms INTEGER,
-            total_latency_ms INTEGER
+            total_latency_ms INTEGER,
+            entry_trade_id INTEGER REFERENCES trades(id)
         );
 
         CREATE TABLE IF NOT EXISTS outcomes (
@@ -99,6 +100,7 @@ def _migrate_v2_columns(conn):
         ("news_latency_ms", "INTEGER"),
         ("classification_latency_ms", "INTEGER"),
         ("total_latency_ms", "INTEGER"),
+        ("entry_trade_id", "INTEGER"),
     ]
     for col_name, col_type in new_cols:
         if col_name not in columns:
@@ -124,19 +126,37 @@ def log_trade(
     news_latency_ms: int | None = None,
     classification_latency_ms: int | None = None,
     total_latency_ms: int | None = None,
-) -> int:
+    entry_trade_id: int | None = None,
+) -> int | None:
+    import config
     conn = _conn()
+
+    # Dedup: skip if same market was traded within the speed target window
+    # (only for BUY trades, not exits)
+    if entry_trade_id is None:
+        dup = conn.execute(
+            """SELECT id FROM trades
+               WHERE market_id = ? AND created_at >= datetime('now', ?)
+               LIMIT 1""",
+            (market_id, f"-{int(config.SPEED_TARGET_SECONDS)} seconds"),
+        ).fetchone()
+        if dup:
+            conn.close()
+            return None
+
     cur = conn.execute(
         """INSERT INTO trades
            (market_id, market_question, claude_score, market_price, edge,
             side, amount_usd, order_id, status, reasoning, headlines,
             news_source, classification, materiality,
-            news_latency_ms, classification_latency_ms, total_latency_ms)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            news_latency_ms, classification_latency_ms, total_latency_ms,
+            entry_trade_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (market_id, market_question, claude_score, market_price, edge,
          side, amount_usd, order_id, status, reasoning, headlines,
          news_source, classification, materiality,
-         news_latency_ms, classification_latency_ms, total_latency_ms),
+         news_latency_ms, classification_latency_ms, total_latency_ms,
+         entry_trade_id),
     )
     trade_id = cur.lastrowid
     conn.commit()
@@ -214,6 +234,50 @@ def log_run_end(run_id: int, markets_scanned: int, signals_found: int, trades_pl
     conn.close()
 
 
+def get_open_positions() -> list[dict]:
+    """Return executed BUY trades that haven't been exited yet."""
+    conn = _conn()
+    rows = conn.execute(
+        """SELECT * FROM trades
+           WHERE status = 'executed'
+             AND id NOT IN (
+                 SELECT entry_trade_id FROM trades
+                 WHERE entry_trade_id IS NOT NULL
+                   AND status IN ('exit_profit', 'exit_loss')
+             )
+           ORDER BY created_at DESC"""
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def log_exit_trade(
+    entry_trade: dict,
+    exit_price: float,
+    status: str,
+    order_id: str | None = None,
+) -> int | None:
+    """Log an exit (sell) trade linked to the original entry trade."""
+    import config
+    pnl = (exit_price - entry_trade["market_price"]) * entry_trade["amount_usd"]
+    if entry_trade["side"] == "NO":
+        pnl = (entry_trade["market_price"] - exit_price) * entry_trade["amount_usd"]
+
+    return log_trade(
+        market_id=entry_trade["market_id"],
+        market_question=entry_trade["market_question"],
+        claude_score=entry_trade["claude_score"],
+        market_price=exit_price,
+        edge=abs(exit_price - entry_trade["market_price"]),
+        side=entry_trade["side"],
+        amount_usd=entry_trade["amount_usd"],
+        order_id=order_id,
+        status=status,
+        reasoning=f"Auto-exit: {status} (entry=${entry_trade['market_price']:.4f} exit=${exit_price:.4f} pnl=${pnl:.2f})",
+        entry_trade_id=entry_trade["id"],
+    )
+
+
 def get_daily_pnl() -> float:
     conn = _conn()
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -226,6 +290,18 @@ def get_daily_pnl() -> float:
     ).fetchone()
     conn.close()
     return row["spent"]
+
+
+def get_recent_market_ids(hours: int = 1) -> set[str]:
+    """Return market IDs that already have trades in the last N hours."""
+    conn = _conn()
+    rows = conn.execute(
+        """SELECT DISTINCT market_id FROM trades
+           WHERE created_at >= datetime('now', ?)""",
+        (f"-{hours} hours",),
+    ).fetchall()
+    conn.close()
+    return {r["market_id"] for r in rows}
 
 
 def get_recent_trades(limit: int = 20) -> list[dict]:

@@ -76,13 +76,9 @@ def match_news_to_markets_broad(
 
     # Fallback: match on category keywords in the headline
     combined = f"{headline} {summary}".lower()
-    category_keywords = {
-        "ai": ["ai", "openai", "gpt", "anthropic", "claude", "llm", "chatgpt", "gemini", "artificial intelligence"],
-        "crypto": ["bitcoin", "ethereum", "solana", "crypto", "blockchain", "defi", "token", "btc", "eth"],
-        "politics": ["trump", "biden", "congress", "senate", "election", "tariff", "fed", "white house"],
-        "technology": ["apple", "google", "microsoft", "nvidia", "tech", "software", "startup"],
-        "science": ["spacex", "nasa", "climate", "research", "discovery"],
-    }
+    # Reuse the same category rules from markets.py for consistency
+    from markets import _CATEGORY_RULES
+    category_keywords = {cat: kws for cat, kws in _CATEGORY_RULES}
 
     matched_categories = set()
     for cat, kws in category_keywords.items():

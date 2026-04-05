@@ -97,10 +97,13 @@ class MarketWatcher:
             log.warning("[watcher] websockets not installed — using polling fallback")
             return
 
+        ws_backoff = 5
+
         while True:
             try:
                 async with websockets.connect(config.POLYMARKET_WS_HOST) as ws:
                     self._ws_connected = True
+                    ws_backoff = 5  # reset on successful connect
                     log.info("[watcher] WebSocket connected")
 
                     # Subscribe to tracked markets
@@ -116,7 +119,14 @@ class MarketWatcher:
                         try:
                             msg = await asyncio.wait_for(ws.recv(), timeout=10)
                             self.stats["ws_messages"] += 1
-                            data = json.loads(msg)
+                            if not isinstance(msg, str) or not msg.strip():
+                                log.debug(f"[watcher] Non-text/empty WS frame, skipping")
+                                continue
+                            try:
+                                data = json.loads(msg)
+                            except json.JSONDecodeError:
+                                log.debug(f"[watcher] Non-JSON WS message: {msg[:200]}")
+                                continue
                             self._handle_ws_message(data)
                         except asyncio.TimeoutError:
                             # Send ping
@@ -124,8 +134,9 @@ class MarketWatcher:
 
             except Exception as e:
                 self._ws_connected = False
-                log.warning(f"[watcher] WebSocket error: {e}, reconnecting in 5s")
-                await asyncio.sleep(5)
+                log.warning(f"[watcher] WebSocket error: {e}, reconnecting in {ws_backoff}s")
+                await asyncio.sleep(ws_backoff)
+                ws_backoff = min(ws_backoff * 2, 60)  # cap at 60s
 
     def _handle_ws_message(self, data: dict):
         """Process a WebSocket price update."""

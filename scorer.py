@@ -3,13 +3,18 @@ from __future__ import annotations
 import json
 
 import anthropic
+import httpx
 
 import config
 from scraper import NewsItem
 from markets import Market
+from utils import retry
 
 
-client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+client = anthropic.Anthropic(
+    api_key=config.ANTHROPIC_API_KEY,
+    timeout=httpx.Timeout(30.0, connect=10.0),
+)
 
 SCORING_PROMPT = """You are a prediction market analyst. Your job is to estimate the probability that a specific market question will resolve YES, based on recent news headlines.
 
@@ -36,6 +41,7 @@ Respond with ONLY valid JSON in this exact format:
 }}"""
 
 
+@retry(max_attempts=2, base_delay=2.0)
 def score_market(market: Market, news: list[NewsItem]) -> dict:
     """Score a market question against recent news using Claude."""
     headlines_text = "\n".join(
