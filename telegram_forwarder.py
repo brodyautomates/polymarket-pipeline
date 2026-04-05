@@ -20,13 +20,12 @@ load_dotenv()
 
 API_ID = int(os.getenv("TELEGRAM_API_ID", "0"))
 API_HASH = os.getenv("TELEGRAM_API_HASH", "")
-TARGET_CHANNEL = os.getenv("TELEGRAM_TARGET_CHANNEL", "@polynews_crypto")
+TARGET_CHANNEL = os.getenv("TELEGRAM_TARGET_CHANNEL", "@@trading_news_yrii")
 
 # Channels to monitor — add/remove as needed
 SOURCE_CHANNELS = [
     # Crypto / Finance
     "@bitcoin",
-    "@WuBlockchain",
     "@unusual_whales",
     "@coinbureau",
     # News / Politics
@@ -36,6 +35,17 @@ SOURCE_CHANNELS = [
     "@politico",
     # Tech / AI
     "@techcrunchofficial",
+    "@wu_blockchain",
+    "@cointelegraph",
+    "@coindesk",
+    "@cryptopanicnews",
+    "@coingecko",
+    "@cryptonews",
+    "@messari",
+    "@banklesshq",
+    "@cryptoslate",
+    "@cryptopotato",
+    "@polynews_crypto",
 ]
 
 if not API_ID or not API_HASH:
@@ -47,17 +57,32 @@ if not TARGET_CHANNEL:
 client = TelegramClient("forwarder_session", API_ID, API_HASH)
 
 
-@client.on(events.NewMessage(chats=SOURCE_CHANNELS))
-async def forward(event):
-    if event.message and event.message.text:
-        source = event.chat.username or str(event.chat_id)
-        print(f"[{source}] {event.message.text[:80]}...")
-        await client.forward_messages(TARGET_CHANNEL, event.message)
+async def resolve_channels():
+    """Resolve channel usernames, skipping any that no longer exist."""
+    valid = []
+    for ch in SOURCE_CHANNELS:
+        try:
+            await client.get_input_entity(ch)
+            valid.append(ch)
+        except (ValueError, Exception) as e:
+            print(f"⚠ Skipping {ch}: {e}")
+    return valid
 
 
 async def main():
     await client.start()
-    print(f"Forwarder running — watching {len(SOURCE_CHANNELS)} channels → {TARGET_CHANNEL}")
+    valid_channels = await resolve_channels()
+    if not valid_channels:
+        raise SystemExit("No valid source channels found.")
+
+    @client.on(events.NewMessage(chats=valid_channels))
+    async def forward(event):
+        if event.message and event.message.text:
+            source = event.chat.username or str(event.chat_id)
+            print(f"[{source}] {event.message.text[:80]}...")
+            await client.forward_messages(TARGET_CHANNEL, event.message)
+
+    print(f"Forwarder running — watching {len(valid_channels)}/{len(SOURCE_CHANNELS)} channels → {TARGET_CHANNEL}")
     print("Press Ctrl+C to stop.\n")
     await client.run_until_disconnected()
 
