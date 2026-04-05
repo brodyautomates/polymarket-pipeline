@@ -16,22 +16,24 @@ client = anthropic.Anthropic(
     timeout=httpx.Timeout(30.0, connect=10.0),
 )
 
-SCORING_PROMPT = """You are a prediction market analyst. Your job is to estimate the probability that a specific market question will resolve YES, based on recent news headlines.
+SCORING_PROMPT = """You are a prediction market analyst. Today's date is {current_date}. Your job is to assess whether recent news shifts the probability of a market question resolving YES.
 
 ## Market Question
 {question}
 
 ## Current Market Price
 YES token price: {yes_price:.2f} (market's implied probability: {yes_price:.0%})
+This price reflects real-time trading conditions as of today. Treat it as the baseline.
 
 ## Recent News Headlines (last {lookback}h)
 {headlines}
 
 ## Instructions
-1. Analyze each headline for relevance to the market question.
-2. Consider base rates, recency of news, and source credibility.
-3. Form an independent probability estimate — do NOT anchor to the current market price.
-4. Be calibrated: 0.50 means you have no information, 0.90+ means near certainty.
+1. The market price above is live and accurate — it reflects current real-world conditions. Do NOT override it with your own knowledge of past prices or events.
+2. Analyze each headline for relevance to the market question.
+3. Assess whether the news shifts the probability UP or DOWN from the current market price.
+4. Only deviate significantly from market price if headlines provide strong, direct evidence.
+5. If no headlines are relevant, return the market price as your confidence.
 
 Respond with ONLY valid JSON in this exact format:
 {{
@@ -51,16 +53,20 @@ def score_market(market: Market, news: list[NewsItem]) -> dict:
 
     if not headlines_text.strip():
         return {
-            "confidence": 0.5,
-            "reasoning": "No relevant news found — returning baseline.",
+            "confidence": market.yes_price,
+            "reasoning": "No relevant news found — deferring to market price.",
             "relevant_headlines": [],
         }
+
+    from datetime import datetime, timezone
+    current_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
     prompt = SCORING_PROMPT.format(
         question=market.question,
         yes_price=market.yes_price,
         lookback=config.NEWS_LOOKBACK_HOURS,
         headlines=headlines_text,
+        current_date=current_date,
     )
 
     try:
@@ -85,13 +91,13 @@ def score_market(market: Market, news: list[NewsItem]) -> dict:
 
     except (json.JSONDecodeError, KeyError, IndexError) as e:
         return {
-            "confidence": 0.5,
+            "confidence": market.yes_price,
             "reasoning": f"Parsing error: {e}",
             "relevant_headlines": [],
         }
     except Exception as e:
         return {
-            "confidence": 0.5,
+            "confidence": market.yes_price,
             "reasoning": f"Scoring error ({type(e).__name__}): {e}",
             "relevant_headlines": [],
         }

@@ -75,6 +75,10 @@ def run_scan_cycle():
     all_markets = fetch_active_markets(limit=100)
     markets = filter_by_categories(all_markets)[:12]
     state.markets_scanned = len(markets)
+
+    # Deduplicate — skip markets already traded recently
+    recent_ids = logger.get_recent_market_ids(hours=6)
+    markets = [m for m in markets if m.condition_id not in recent_ids]
     state.latest_markets = markets
 
     # Step 3: Score and detect edge
