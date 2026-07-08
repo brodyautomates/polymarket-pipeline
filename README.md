@@ -65,7 +65,84 @@ python cli.py verify
 
 ## How to Use
 
-### V2: Event-Driven Pipeline (Recommended)
+### Market-Data Trading Bot (No API keys required)
+
+The quickest way to see a working bot. It trades purely on live Polymarket
+order-book data — **no Anthropic, Twitter, or Telegram keys needed** — and
+paper-trades against a persistent portfolio by default.
+
+```bash
+# One cycle, paper trading, $1,000 starting bankroll
+python cli.py bot --bankroll 1000
+
+# Run continuously (default 60s between cycles)
+python cli.py bot --loop
+
+# Choose strategies and pace
+python cli.py bot --loop --interval 30 --strategies favorite_longshot
+
+# Inspect the paper portfolio and open positions
+python cli.py portfolio
+
+# Live trading (requires POLYMARKET_PRIVATE_KEY + POLYMARKET_FUNDER_ADDRESS)
+python cli.py bot --live --loop
+```
+
+**How it works**
+
+1. **Fetch** — pulls active markets from Polymarket's public Gamma API and keeps
+   those inside the volume window (`MIN_VOLUME_USD`–`MAX_VOLUME_USD`).
+2. **Strategy engine** (`strategy.py`) — runs one or more built-in strategies:
+   - `favorite_longshot` — exploits the favorite-longshot bias by buying
+     underpriced favorites (price band `0.85`–`0.97`) on liquid, tight-spread
+     markets that resolve within a bounded horizon.
+   - `mean_reversion` — records a rolling price history and buys the cheap side
+     when price deviates from its short moving average, betting on reversion.
+3. **Risk limits** — per-position cap (`MAX_POSITION_PCT`, `MAX_BET_USD`), total
+   exposure cap (`MAX_EXPOSURE_PCT`), and a max open-position count. Spread and
+   liquidity filters skip markets that are too thin to trade.
+4. **Execution** — paper by default via a real ledger (`portfolio.py`: cash,
+   positions, average price, realized + mark-to-market unrealized P&L). With
+   `--live` it places CLOB orders through `executor.py`.
+5. **Exits** — take-profit / stop-loss relative to entry price, plus a
+   near-certain capture as a market approaches resolution.
+
+Everything is persisted in `trades.db`, so `python cli.py portfolio` shows live
+P&L across runs. Reset any time with `python cli.py portfolio --reset 1000`.
+
+### Going Live (real orders)
+
+Live trading is off by default. Before risking a cent, run the pre-flight check —
+it validates your credentials, authenticates with the CLOB, and reads your
+balance **without placing any order**:
+
+```bash
+python cli.py verify-live
+```
+
+Requirements (all in your local `.env`, which is gitignored — never commit keys):
+
+| Variable | What it is |
+|---|---|
+| `POLYMARKET_PRIVATE_KEY` | Your wallet's **64-hex signing key** (`0x…`). **Not** the API-key UUID — that's a common, costly mix-up `verify-live` catches for you. |
+| `POLYMARKET_FUNDER_ADDRESS` | The proxy wallet address holding your USDC (from the Polymarket deposit page). |
+| `POLYMARKET_SIGNATURE_TYPE` | `0` = EOA (no proxy), `1` = email/magic login, `2` = browser-wallet (MetaMask) proxy. Funds deposited via polymarket.com sit in a proxy, so most users need `1` or `2`. |
+| `DRY_RUN` | Set to `false` to arm live orders. |
+
+```bash
+pip install py-clob-client
+# Prove the plumbing with a $1 cap before scaling up:
+MAX_BET_USD=1 python cli.py bot --live
+```
+
+The API key/secret/passphrase are derived automatically from your private key —
+you don't set them manually.
+
+> ⚠️ The included strategies did **not** beat trading costs in a 1,000-market
+> backtest (+1.6% ROI before fees). Live trading works mechanically, but treat
+> these as a foundation to improve, not a proven money-maker. Start tiny.
+
+### V2: Event-Driven Pipeline (news + Claude)
 
 ```bash
 # Start the real-time pipeline — monitors news streams, classifies, trades
@@ -133,6 +210,14 @@ executor.py         Trade execution — dry-run + live CLOB orders (async)
 pipeline.py         Event-driven orchestrator (asyncio)
 calibrator.py       Tracks classification accuracy over time
 backtest.py         Historical replay for strategy validation
+```
+
+### Market-Data Trading Bot (no API keys)
+
+```
+bot.py              Trading loop — fetch → strategy → risk limits → execute → manage exits
+strategy.py         Strategy engine — favorite-longshot bias, mean-reversion
+portfolio.py        Paper-trading ledger — cash, positions, realized + unrealized P&L
 ```
 
 ### Shared Infrastructure

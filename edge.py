@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import config
 from markets import Market
-from classifier import Classification
-from news_stream import NewsEvent
+
+if TYPE_CHECKING:
+    # Only needed for type hints on the V2 (news-pipeline) path. Importing these
+    # eagerly would drag in `anthropic`, which the market-data bot doesn't need.
+    from classifier import Classification
+    from news_stream import NewsEvent
 
 
 @dataclass

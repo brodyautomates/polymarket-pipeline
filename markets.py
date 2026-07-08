@@ -20,10 +20,34 @@ class Market:
     end_date: str
     active: bool
     tokens: list[dict]
+    # Order-book / liquidity fields (used by the market-data trading bot)
+    best_bid: float = 0.0
+    best_ask: float = 0.0
+    spread: float = 0.0
+    liquidity: float = 0.0
 
     @property
     def implied_probability(self) -> float:
         return self.yes_price
+
+    @property
+    def mid_price(self) -> float:
+        """Order-book midpoint for the YES token, falling back to last price."""
+        if self.best_bid and self.best_ask:
+            return (self.best_bid + self.best_ask) / 2
+        return self.yes_price
+
+    def hours_to_resolution(self) -> float | None:
+        """Hours until the market's end date, or None if unknown."""
+        if not self.end_date:
+            return None
+        from datetime import datetime, timezone
+        try:
+            end = datetime.fromisoformat(self.end_date.replace("Z", "+00:00"))
+            delta = end - datetime.now(timezone.utc)
+            return delta.total_seconds() / 3600
+        except (ValueError, TypeError):
+            return None
 
 
 def fetch_active_markets(limit: int = 50) -> list[Market]:
@@ -94,12 +118,18 @@ def fetch_active_markets(limit: int = 50) -> list[Market]:
                     "price": yes_price if i == 0 else no_price,
                 })
 
-            vol = float(m.get("volume", m.get("volumeNum", 0)) or 0)
+            vol = float(m.get("volumeNum", m.get("volume", 0)) or 0)
             question = m.get("question", "")
 
             # Skip resolved or low-info markets
             if yes_price in (0.0, 1.0) and vol == 0:
                 continue
+
+            def _f(val, default=0.0):
+                try:
+                    return float(val)
+                except (TypeError, ValueError):
+                    return default
 
             markets.append(Market(
                 condition_id=m.get("conditionId", m.get("condition_id", m.get("id", ""))),
@@ -111,6 +141,10 @@ def fetch_active_markets(limit: int = 50) -> list[Market]:
                 end_date=m.get("endDate", m.get("end_date_iso", "")),
                 active=m.get("active", True),
                 tokens=token_list,
+                best_bid=_f(m.get("bestBid")),
+                best_ask=_f(m.get("bestAsk")),
+                spread=_f(m.get("spread")),
+                liquidity=_f(m.get("liquidityNum", m.get("liquidity"))),
             ))
         except (KeyError, ValueError, TypeError):
             continue
